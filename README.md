@@ -3,9 +3,10 @@
 An agent-first CLI for remote SaaS applications backed by OpenAPI, built in Go.
 
 ## Architecture & Research
+## Documentation & Research
 
-Comprehensive architecture research and blueprints derived from CircleCI CLI (`circleci-cli`) and Cloudflare CLI (`cf`):
-- Read the complete technical document: [RESEARCH_AGENT_FIRST_CLI.md](./RESEARCH_AGENT_FIRST_CLI.md)
+- [RESEARCH_AGENT_FIRST_CLI.md](./RESEARCH_AGENT_FIRST_CLI.md) — Comprehensive architecture blueprint derived from CircleCI CLI (`circleci-cli`) and Cloudflare CLI (`cf`).
+- [ECOSYSTEM_RESEARCH.md](./ECOSYSTEM_RESEARCH.md) — Comparative analysis of open-source permissively licensed tools (Stripe CLI, GitHub CLI, Supabase CLI, `mark3labs/mcp-go`, `cobra-mcp`, `openapi-mcp`).
 
 ## Core Capabilities for AI Agents
 
