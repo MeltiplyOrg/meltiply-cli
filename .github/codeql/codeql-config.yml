@@ -1,0 +1,9 @@
+name: melti-cli CodeQL
+
+queries:
+  - uses: security-extended
+
+paths-ignore:
+  - .agents
+  - bin
+  - dist

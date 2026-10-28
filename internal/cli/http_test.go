@@ -18,12 +18,13 @@ import (
 // policy with two real HTTP servers, proving a credential cannot be forwarded.
 func TestRedirectNeverReceivesSession(t *testing.T) {
 	var leaked atomic.Bool
-	destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		leaked.Store(true)
 		_, _ = w.Write([]byte(`{}`))
 	}))
 	defer destination.Close()
 	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		//nolint:gosec // test deliberately redirects to verify the client refuses to follow
 		http.Redirect(w, r, destination.URL+r.URL.Path, http.StatusTemporaryRedirect)
 	}))
 	defer origin.Close()
@@ -66,7 +67,7 @@ func TestForbiddenMutationEmitsStructuredError(t *testing.T) {
 			return
 		}
 		mutations.Add(1)
-		w.WriteHeader(403)
+		w.WriteHeader(http.StatusForbidden)
 		_, _ = w.Write([]byte(`{"error":{"code":"forbidden","message":"Viewers cannot create Posts","request_id":"request-forbidden-1"}}`))
 	}))
 	defer server.Close()
@@ -99,7 +100,7 @@ func TestInvalidPageMakesNoRequest(t *testing.T) {
 	for _, flags := range [][]string{{"--limit", "0"}, {"--limit", "101"}, {"--offset", "-1"}, {"--offset", "1000001"}} {
 		t.Run(strings.Join(flags, " "), func(t *testing.T) {
 			var contacted atomic.Bool
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 				contacted.Store(true)
 			}))
 			defer server.Close()
@@ -155,7 +156,7 @@ func TestServerOverrideCannotReuseAnotherInstallationSession(t *testing.T) {
 	first := httptest.NewServer(http.HandlerFunc(fixture.handler))
 	defer first.Close()
 	var secondContacted atomic.Bool
-	second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	second := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		secondContacted.Store(true)
 	}))
 	defer second.Close()

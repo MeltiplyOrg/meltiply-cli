@@ -13,6 +13,21 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const (
+	// cliName is both the executable name and the device-flow client identifier.
+	cliName = "melti-cli"
+	// codeInvalidArguments is the stable machine code for local input failures.
+	codeInvalidArguments = "invalid_arguments"
+)
+
+// Version is build metadata injected by the release build; command output uses
+// the same shape so agents can identify the running binary.
+type Version struct {
+	Version string `json:"version"`
+	Commit  string `json:"commit"`
+	Date    string `json:"date"`
+}
+
 // Options supplies process I/O and the external HTTP, credential-store, and
 // browser seams. Zero values select the production OS implementations.
 type Options struct {
@@ -22,6 +37,7 @@ type Options struct {
 	Client      *http.Client
 	Credentials CredentialStore
 	OpenBrowser func(string) error
+	Version     Version
 }
 
 type application struct {
@@ -48,29 +64,29 @@ func NewCommand(options Options) *cobra.Command {
 	}
 	if directory == "" {
 		if base, err := os.UserConfigDir(); err == nil {
-			directory = filepath.Join(base, "melti-cli")
+			directory = filepath.Join(base, cliName)
 		}
 	}
 	app := &application{options: options, directory: directory}
 	root := &cobra.Command{
-		Use:           "melti-cli",
+		Use:           cliName,
 		Short:         "Use a Meltiply installation from your terminal",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
-			return app.configure()
+			return app.configure(cmd)
 		},
 	}
 	root.SetOut(options.Out)
 	root.SetErr(options.Err)
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
-		return &Error{Code: "invalid_arguments", Message: err.Error()}
+		return &Error{Code: codeInvalidArguments, Message: err.Error()}
 	})
 	root.PersistentFlags().StringVar(&app.server, "server", os.Getenv("MELTI_SERVER"), "Meltiply installation origin")
 	root.PersistentFlags().StringVar(&app.directory, "config-dir", directory, "Configuration directory")
 	auth := &cobra.Command{Use: "auth", Short: "Authorize and manage this CLI's session"}
 	auth.AddCommand(app.loginCommand(), app.statusCommand(), app.logoutCommand())
-	root.AddCommand(auth, app.postsCommand())
+	root.AddCommand(auth, app.postsCommand(), app.versionCommand())
 	return root
 }
 
@@ -90,7 +106,7 @@ func Run(ctx context.Context, args []string, options Options) int {
 		if errors.Is(err, context.Canceled) {
 			return 130
 		}
-		if detail.Code == "invalid_arguments" {
+		if detail.Code == codeInvalidArguments {
 			return 2
 		}
 		return 1
@@ -102,7 +118,7 @@ func Run(ctx context.Context, args []string, options Options) int {
 // on runtime failures.
 func noArguments(cmd *cobra.Command, args []string) error {
 	if err := cobra.NoArgs(cmd, args); err != nil {
-		return &Error{Code: "invalid_arguments", Message: err.Error()}
+		return &Error{Code: codeInvalidArguments, Message: err.Error()}
 	}
 	return nil
 }

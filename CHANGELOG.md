@@ -9,3 +9,7 @@
 - Add bounded Post listing and idempotent text-only draft Post creation.
 - Add JSON success/error output, cancellation, request limits, and credential-safe redirect handling.
 - Add public-command HTTP tests and distinguish implemented behavior from architecture research.
+- Add a `version` command and inject release metadata through GoReleaser ldflags.
+- Add GitHub Actions for multi-version tests, linting, formatting, docs links,
+  cross-building, GoReleaser snapshots, releases, CodeQL, gosec, govulncheck,
+  dependency review, and OpenSSF Scorecard, plus weekly Dependabot updates.

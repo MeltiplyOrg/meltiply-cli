@@ -28,6 +28,7 @@ func TestExplicitFileStorage(t *testing.T) {
 	if !strings.Contains(stderr, "plaintext") {
 		t.Fatal("plaintext storage was not disclosed")
 	}
+	//nolint:gosec // path is a test-controlled temporary directory
 	config, err := os.ReadFile(filepath.Join(directory, "config.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -50,10 +51,11 @@ func TestExplicitFileStorage(t *testing.T) {
 		t.Fatalf("expected one credential file: %v, %v", paths, err)
 	}
 	info, err := os.Stat(paths[0])
-	if err != nil || info.Mode().Perm() != 0600 {
+	if err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("credential is not owner-only: %v, %v", info, err)
 	}
-	if err := os.Chmod(paths[0], 0644); err != nil {
+	//nolint:gosec // deliberately widens test-file permissions to verify rejection
+	if err := os.Chmod(paths[0], 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := execute(t, options, "auth", "status"); err == nil {

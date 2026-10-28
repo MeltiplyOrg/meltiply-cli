@@ -18,13 +18,13 @@ func (app *application) listPostsCommand() *cobra.Command {
 		Use: "list", Short: "List one page of Posts as JSON", Args: noArguments,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if limit < 1 || limit > 100 || offset < 0 || offset > 1_000_000 {
-				return &Error{Code: "invalid_arguments", Message: "limit must be 1–100 and offset must be 0–1000000"}
+				return &Error{Code: codeInvalidArguments, Message: "limit must be 1–100 and offset must be 0–1000000"}
 			}
 			if brandProfile != "" && !validUUID(brandProfile) {
-				return &Error{Code: "invalid_arguments", Message: "brand-profile must be a UUID"}
+				return &Error{Code: codeInvalidArguments, Message: "brand-profile must be a UUID"}
 			}
 			if status != "" && status != "draft" && status != "active" {
-				return &Error{Code: "invalid_arguments", Message: "status must be draft or active"}
+				return &Error{Code: codeInvalidArguments, Message: "status must be draft or active"}
 			}
 			query := url.Values{"limit": {strconv.Itoa(limit)}, "offset": {strconv.Itoa(offset)}}
 			if brandProfile != "" {

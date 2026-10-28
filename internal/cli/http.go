@@ -106,7 +106,7 @@ func (app *application) request(ctx context.Context, input httpRequest) (httpRes
 		return httpResult{}, err
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "melti-cli")
+	req.Header.Set("User-Agent", cliName)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -123,7 +123,7 @@ func (app *application) request(ctx context.Context, input httpRequest) (httpRes
 	if err != nil {
 		return httpResult{}, fmt.Errorf("request failed: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	const maximumResponse = 8 << 20
 	data, err := io.ReadAll(io.LimitReader(response.Body, maximumResponse+1))
 	if err != nil {

@@ -1,5 +1,9 @@
 # melti-cli
 
+[![CI](https://github.com/MeltiplyOrg/meltiply-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/MeltiplyOrg/meltiply-cli/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/MeltiplyOrg/meltiply-cli/actions/workflows/codeql.yml/badge.svg)](https://github.com/MeltiplyOrg/meltiply-cli/actions/workflows/codeql.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/MeltiplyOrg/meltiply-cli/badge)](https://scorecard.dev/viewer/?uri=github.com/MeltiplyOrg/meltiply-cli)
+
 A Go command-line client for [Meltiply](https://github.com/MeltiplyOrg/meltiply).
 It calls the same HTTP interface as the dashboard; the server owns Workspace
 permissions, Post validation, persistence, and publishing.
@@ -23,6 +27,13 @@ go build -o bin/melti-cli ./cmd/melti-cli
 
 The executable is `melti-cli`. The Go module retains the existing GitHub repository
 address, `github.com/MeltiplyOrg/meltiply-cli`; the repository has not been renamed.
+
+`make build` injects version, commit, and build date from Git; release archives are
+built by GoReleaser. Inspect the running binary without contacting an installation:
+
+```sh
+./bin/melti-cli version
+```
 
 ## Connect and authorize
 
@@ -49,8 +60,10 @@ opt in:
   --no-browser --insecure-storage
 ```
 
-This stores the session in an owner-only (`0600`) **plaintext** file, not encrypted
-storage. File storage remains selected only for that installation; other origins
+This stores the session in a **plaintext** file, not encrypted storage. On POSIX
+systems the CLI requires owner-only `0600` permissions; on Windows the file
+inherits the user profile directory's ACL. File storage remains selected only
+for that installation; other origins
 still default to the OS keyring. Protect the configuration directory and do not
 share it with untrusted users. A live existing login is reused without changing
 its storage; log out before choosing another storage mode.
@@ -118,9 +131,11 @@ mutations.
 ## Development
 
 ```sh
-go build ./...
-go vet ./...
-go test -race ./...
+make build        # compile with version metadata
+make check        # build all packages and run go vet
+make test         # race-enabled, shuffled tests
+make lint         # golangci-lint (requires it on PATH)
+make fmt          # apply gofumpt/goimports (requires golangci-lint)
 ```
 
 Tests exercise the public command interface against local HTTP servers with an
@@ -129,6 +144,29 @@ expired grants, polling backoff, session replacement, logout failure, credential
 isolation, redirect blocking, pagination, and idempotent Post creation. Explicit
 plaintext storage is also exercised through separate command instances. These
 tests do not prove a live backend deployment or an OS keyring implementation.
+
+### Continuous integration
+
+CI runs on every push to `main`, pull request, and merge-queue entry. Security
+workflows run on pushes, pull requests, and a weekly schedule. Together they
+provide:
+
+- **Tests:** Go 1.22 through the current stable release, race detector, shuffled
+  order, atomic coverage, and a 70% total statement-coverage floor. Coverage is
+  uploaded to Codecov and retained as a build artifact.
+- **Quality:** `go vet`, module tidiness, `go build`, golangci-lint (including
+  gosec), and the repository's gofumpt/goimports formatting.
+- **Workflow and docs:** `actionlint` validates every workflow; Lychee checks
+  local Markdown links.
+- **Portability:** cross-compiles every release target, and builds a GoReleaser
+  snapshot with checksums and archives.
+- **Security:** `govulncheck`, gosec SARIF upload, CodeQL (`security-extended`),
+  dependency review on pull requests, and weekly OpenSSF Scorecard analysis.
+
+Pushing a `v*` tag publishes Linux, macOS, and Windows archives for `amd64` and
+`arm64` through GoReleaser, with a changelog and checksums. All workflows use
+least-privilege permissions and pin linter and scanner versions in the workflow
+files.
 
 ## Architecture research
 

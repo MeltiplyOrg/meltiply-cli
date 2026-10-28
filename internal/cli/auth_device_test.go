@@ -27,7 +27,7 @@ func TestDeviceRejectionStopsLogin(t *testing.T) {
 					fixture.handler(w, r)
 					return
 				}
-				w.WriteHeader(400)
+				w.WriteHeader(http.StatusBadRequest)
 				_, _ = fmt.Fprintf(w, `{"error":%q,"error_description":"Restart login"}`, code)
 			}))
 			defer server.Close()
@@ -56,7 +56,7 @@ func TestDeviceSlowDownHonorsCancellation(t *testing.T) {
 			return
 		}
 		polls.Add(1)
-		w.WriteHeader(400)
+		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`{"error":"slow_down","error_description":"Poll more slowly"}`))
 	}))
 	defer server.Close()
@@ -78,7 +78,7 @@ func TestDeviceSlowDownHonorsCancellation(t *testing.T) {
 // TestUntrustedApprovalURLNeverOpensBrowser rejects a server response attempting
 // to send the member to a different installation for consent.
 func TestUntrustedApprovalURLNeverOpensBrowser(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"device_code":"secret","user_code":"ABCD-EFGH","verification_uri_complete":"https://unrelated.example/device","expires_in":30,"interval":1}`))
 	}))
 	defer server.Close()
@@ -99,7 +99,7 @@ func TestLogoutFailureKeepsRevocableCredential(t *testing.T) {
 	fixture := &authFixture{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/auth/sign-out" {
-			http.Error(w, `{"error":{"code":"unavailable","message":"Try again later"}}`, 503)
+			http.Error(w, `{"error":{"code":"unavailable","message":"Try again later"}}`, http.StatusServiceUnavailable)
 			return
 		}
 		fixture.handler(w, r)

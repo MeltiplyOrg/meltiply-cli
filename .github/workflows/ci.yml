@@ -1,0 +1,224 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (Go ${{ matrix.go }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # Explicit releases cover the module floor through the current stable.
+        # `stable` keeps the newest toolchain covered after a Go release.
+        go: ["1.22.x", "1.23.x", "1.24.x", "1.25.x", "1.26.x", "stable"]
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: ${{ matrix.go }}
+          cache: true
+
+      - name: Verify dependencies
+        run: |
+          go mod verify
+          go mod download
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test with race detector
+        run: >-
+          go test -race -shuffle=on -count=1 -timeout=5m
+          -covermode=atomic -coverprofile=coverage.out ./...
+
+      - name: Enforce coverage floor
+        run: |
+          total="$(go tool cover -func=coverage.out | awk '/^total:/ { gsub(/%/, "", $3); print $3 }')"
+          if ! awk -v coverage="$total" 'BEGIN { exit !(coverage >= 70) }'; then
+            echo "::error::coverage ${total}% is below the 70% floor"
+            exit 1
+          fi
+
+      - name: Upload coverage artifact
+        if: matrix.go == 'stable'
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-${{ github.sha }}
+          path: coverage.out
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload coverage to Codecov
+        if: matrix.go == 'stable'
+        uses: codecov/codecov-action@v7
+        with:
+          files: ./coverage.out
+          flags: unittests
+          name: go-stable
+          fail_ci_if_error: false
+
+  lint:
+    name: Lint and format
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: stable
+          cache: true
+
+      - name: Verify module and toolchain
+        run: |
+          go mod verify
+          go vet ./...
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.15.0
+          args: --timeout=5m
+
+      - name: Install formatter
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.15.0
+          install-only: true
+
+      - name: Check formatting
+        run: |
+          golangci-lint fmt ./...
+          git diff --exit-code
+
+  workflows:
+    name: Validate workflows
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: stable
+          cache: true
+
+      - name: Install actionlint
+        run: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+
+      - name: Lint GitHub Actions workflows
+        run: '"$(go env GOPATH)/bin/actionlint" -color'
+
+  docs:
+    name: Documentation links
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check Markdown links
+        uses: lycheeverse/lychee-action@v2.9.0
+        with:
+          args: >-
+            --offline --no-progress
+            README.md CHANGELOG.md AGENTS.md
+            ECOSYSTEM_RESEARCH.md RESEARCH_AGENT_FIRST_CLI.md
+          fail: true
+          lycheeVersion: v0.24.2
+
+  cross-build:
+    name: Cross-build (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+          - { goos: darwin, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
+          - { goos: windows, goarch: amd64 }
+          - { goos: windows, goarch: arm64 }
+    env:
+      GOTOOLCHAIN: local
+      CGO_ENABLED: "0"
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: stable
+          cache: true
+
+      - name: Compile
+        run: go build -trimpath -o /dev/null ./cmd/melti-cli
+
+  packaging:
+    name: Release packaging
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: stable
+          cache: true
+
+      - name: Validate GoReleaser configuration
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          version: "~> v2"
+          args: check
+
+      - name: Build release snapshot
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          version: "~> v2"
+          args: release --snapshot --clean
+
+      - name: Upload snapshot artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: snapshot-${{ github.sha }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt
+          if-no-files-found: error
+          retention-days: 7

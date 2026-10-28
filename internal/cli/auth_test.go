@@ -20,7 +20,7 @@ func TestSessionRenewalRetainsReplacement(t *testing.T) {
 		switch r.URL.Path {
 		case "/api/auth/get-session":
 			if r.Header.Get("Authorization") != "Bearer "+activeSession {
-				http.Error(w, `{"code":"INVALID_SESSION","message":"Session is no longer valid"}`, 401)
+				http.Error(w, `{"code":"INVALID_SESSION","message":"Session is no longer valid"}`, http.StatusUnauthorized)
 				return
 			}
 			generation++
@@ -30,7 +30,7 @@ func TestSessionRenewalRetainsReplacement(t *testing.T) {
 			_, _ = w.Write([]byte(`{"session":{"expiresAt":"2099-01-01T00:00:00Z"},"user":{"id":"member-1"}}`))
 		case "/api/v1/users/me":
 			if r.Header.Get("Authorization") != fmt.Sprintf("Bearer api-jwt-%d", generation) {
-				http.Error(w, `{"error":{"code":"authentication_required"}}`, 401)
+				http.Error(w, `{"error":{"code":"authentication_required"}}`, http.StatusUnauthorized)
 				return
 			}
 			_, _ = w.Write([]byte(`{"id":"member-1"}`))

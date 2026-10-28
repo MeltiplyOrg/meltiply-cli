@@ -26,7 +26,7 @@ func (app *application) createPostCommand() *cobra.Command {
 		Use: "create", Short: "Create a text-only draft Post", Args: noArguments,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if !validUUID(brandProfile) || text == "" {
-				return &Error{Code: "invalid_arguments", Message: "provide --brand-profile <UUID> and nonempty --text"}
+				return &Error{Code: codeInvalidArguments, Message: "provide --brand-profile <UUID> and nonempty --text"}
 			}
 			if key == "" {
 				var err error
@@ -36,7 +36,7 @@ func (app *application) createPostCommand() *cobra.Command {
 				}
 			}
 			if !validActionKey(key) {
-				return &Error{Code: "invalid_arguments", Message: "idempotency key must contain 8–128 printable ASCII characters"}
+				return &Error{Code: codeInvalidArguments, Message: "idempotency key must contain 8–128 printable ASCII characters"}
 			}
 			jwt, err := app.authenticatedJWT(cmd.Context())
 			if err != nil {
@@ -85,7 +85,7 @@ func validUUID(value string) bool {
 			continue
 		}
 		c := value[i]
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
 			return false
 		}
 	}

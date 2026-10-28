@@ -58,24 +58,30 @@ func (f *authFixture) handler(w http.ResponseWriter, r *http.Request) {
 	case "/api/auth/device/code":
 		var body map[string]string
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		if r.Method != "POST" || body["client_id"] != "melti-cli" {
-			http.Error(w, `{"error":"invalid_client"}`, 400)
+		if r.Method != http.MethodPost || body["client_id"] != "melti-cli" {
+			http.Error(w, `{"error":"invalid_client"}`, http.StatusBadRequest)
 			return
 		}
 		origin := "http://" + r.Host
-		_, _ = fmt.Fprintf(w, `{"device_code":"device-secret","user_code":"ABCD-EFGH","verification_uri":%q,"verification_uri_complete":%q,"expires_in":30,"interval":1}`,
-			origin+"/device", origin+"/device?user_code=ABCD-EFGH")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"device_code":               "device-secret",
+			"user_code":                 "ABCD-EFGH",
+			"verification_uri":          origin + "/device",
+			"verification_uri_complete": origin + "/device?user_code=ABCD-EFGH",
+			"expires_in":                30,
+			"interval":                  1,
+		})
 	case "/api/auth/device/token":
 		var body map[string]string
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		validGrant := body["grant_type"] == "urn:ietf:params:oauth:grant-type:device_code"
 		if !validGrant || body["device_code"] != "device-secret" || body["client_id"] != "melti-cli" {
-			http.Error(w, `{"error":"invalid_grant"}`, 400)
+			http.Error(w, `{"error":"invalid_grant"}`, http.StatusBadRequest)
 			return
 		}
 		if !f.approved || f.pending {
 			f.pending = false
-			http.Error(w, `{"error":"authorization_pending"}`, 400)
+			http.Error(w, `{"error":"authorization_pending"}`, http.StatusBadRequest)
 			return
 		}
 		_, _ = w.Write([]byte(`{"access_token":"cli-session-secret","token_type":"Bearer","expires_in":604800}`))
@@ -88,13 +94,13 @@ func (f *authFixture) handler(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"session":{"expiresAt":"2099-01-01T00:00:00Z"},"user":{"id":"member-1"}}`))
 	case "/api/v1/users/me":
 		if r.Header.Get("Authorization") != "Bearer fresh-api-jwt" || f.revoked {
-			http.Error(w, `{"error":{"code":"authentication_required","message":"Authentication is required."}}`, 401)
+			http.Error(w, `{"error":{"code":"authentication_required","message":"Authentication is required."}}`, http.StatusUnauthorized)
 			return
 		}
 		_, _ = w.Write([]byte(`{"id":"member-1","email":"member@example.test"}`))
 	case "/api/auth/sign-out":
-		if r.Method != "POST" || r.Header.Get("Authorization") != "Bearer cli-session-secret" {
-			http.Error(w, `{"error":"invalid_session"}`, 401)
+		if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer cli-session-secret" {
+			http.Error(w, `{"error":"invalid_session"}`, http.StatusUnauthorized)
 			return
 		}
 		f.revoked = true
@@ -114,6 +120,30 @@ func execute(t *testing.T, options cli.Options, args ...string) (string, string,
 	command.SetArgs(args)
 	err := command.ExecuteContext(context.Background())
 	return stdout.String(), stderr.String(), err
+}
+
+// TestOfflineCommandsNeedNoInstallation protects version and completion from
+// requiring a backend origin during installation setup or shell bootstrapping.
+func TestOfflineCommandsNeedNoInstallation(t *testing.T) {
+	options := cli.Options{
+		ConfigDir: t.TempDir(),
+		Version:   cli.Version{Version: "1.2.3", Commit: "abc123", Date: "2026-01-01T00:00:00Z"},
+	}
+	stdout, stderr, err := execute(t, options, "version")
+	if err != nil {
+		t.Fatalf("version: %v; stderr: %s", err, stderr)
+	}
+	if !strings.Contains(stdout, `"version":"1.2.3"`) || !strings.Contains(stdout, `"commit":"abc123"`) {
+		t.Fatalf("wrong version output: %s", stdout)
+	}
+	if stdout, _, err := execute(t, options, "completion", "bash"); err != nil || stdout == "" {
+		t.Fatalf("completion required an installation: %v", err)
+	}
+	for _, group := range []string{"auth", "posts"} {
+		if _, _, err := execute(t, options, group); err != nil {
+			t.Fatalf("%s help required an installation: %v", group, err)
+		}
+	}
 }
 
 // TestBrowserLogin persists only the device-issued session and obtains a fresh

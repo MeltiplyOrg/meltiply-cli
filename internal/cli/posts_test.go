@@ -25,8 +25,8 @@ func TestCreatePostReusesActionIdentity(t *testing.T) {
 			fixture.handler(w, r)
 			return
 		}
-		if r.Method != "POST" || r.Header.Get("Authorization") != "Bearer fresh-api-jwt" {
-			http.Error(w, `{"error":{"code":"forbidden","message":"Not allowed"}}`, 403)
+		if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer fresh-api-jwt" {
+			http.Error(w, `{"error":{"code":"forbidden","message":"Not allowed"}}`, http.StatusForbidden)
 			return
 		}
 		var body map[string]any

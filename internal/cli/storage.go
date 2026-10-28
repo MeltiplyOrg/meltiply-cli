@@ -8,12 +8,19 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 
+	"github.com/spf13/cobra"
 	"github.com/zalando/go-keyring"
 )
 
+const (
+	storageFile    = "file"
+	storageKeyring = "keyring"
+)
+
 // ErrNoCredential indicates that an installation has no saved CLI session.
-var ErrNoCredential = errors.New("no saved CLI session; run melti-cli auth login")
+var ErrNoCredential = errors.New("no saved CLI session; run " + cliName + " auth login")
 
 var errCredentialStoreUnavailable = errors.New(
 	"OS credential store unavailable; configure your keyring or explicitly use auth login --insecure-storage",
@@ -37,7 +44,7 @@ type systemCredentials struct{}
 
 // Get reads one installation's session from the OS credential store.
 func (systemCredentials) Get(server string) (string, error) {
-	value, err := keyring.Get("melti-cli", server)
+	value, err := keyring.Get(cliName, server)
 	if errors.Is(err, keyring.ErrNotFound) {
 		return "", ErrNoCredential
 	}
@@ -49,7 +56,7 @@ func (systemCredentials) Get(server string) (string, error) {
 
 // Set fails closed rather than silently falling back to plaintext storage.
 func (systemCredentials) Set(server, credential string) error {
-	if err := keyring.Set("melti-cli", server, credential); err != nil {
+	if err := keyring.Set(cliName, server, credential); err != nil {
 		return errors.New("cannot save to OS credential store; configure your keyring or explicitly use auth login --insecure-storage")
 	}
 	return nil
@@ -57,7 +64,7 @@ func (systemCredentials) Set(server, credential string) error {
 
 // Delete removes only this installation's CLI credential.
 func (systemCredentials) Delete(server string) error {
-	err := keyring.Delete("melti-cli", server)
+	err := keyring.Delete(cliName, server)
 	if errors.Is(err, keyring.ErrNotFound) {
 		return nil
 	}
@@ -87,9 +94,13 @@ func (s fileCredentials) Get(server string) (string, error) {
 	if err != nil {
 		return "", errors.New("cannot read the saved credential file")
 	}
-	if !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
+	// Windows ACLs are not represented by POSIX mode bits; the file inherits
+	// the user profile directory's protection. Other platforms must prove 0600.
+	unsafePermissions := runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0
+	if !info.Mode().IsRegular() || unsafePermissions {
 		return "", errors.New("credential file must be a regular file accessible only to its owner (0600)")
 	}
+	// #nosec G304 -- path is fixed under the config directory and keyed by a SHA-256 digest
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", errors.New("cannot read the saved credential file")
@@ -124,14 +135,14 @@ func writePrivateJSON(path string, value any) error {
 		return err
 	}
 	directory := filepath.Dir(path)
-	if err := os.MkdirAll(directory, 0700); err != nil {
+	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return fmt.Errorf("create configuration directory: %w", err)
 	}
 	file, err := os.CreateTemp(directory, ".melti-*")
 	if err != nil {
 		return fmt.Errorf("create private configuration file: %w", err)
 	}
-	defer os.Remove(file.Name())
+	defer func() { _ = os.Remove(file.Name()) }()
 	if _, err := file.Write(data); err != nil {
 		_ = file.Close()
 		return fmt.Errorf("write configuration: %w", err)
@@ -144,8 +155,12 @@ func writePrivateJSON(path string, value any) error {
 
 // configure resolves flags/environment before the saved default installation.
 // It copies the HTTP client to forbid credential-bearing redirects without
-// mutating a caller-owned client.
-func (app *application) configure() error {
+// mutating a caller-owned client. Commands such as version and completion do
+// not require an installation and skip this work.
+func (app *application) configure(cmd *cobra.Command) error {
+	if !requiresInstallation(cmd) {
+		return nil
+	}
 	if app.directory == "" {
 		return errors.New("cannot resolve the configuration directory; set --config-dir")
 	}
@@ -166,15 +181,31 @@ func (app *application) configure() error {
 	}
 	app.server, err = installationOrigin(app.server)
 	if err != nil {
-		return &Error{Code: "invalid_arguments", Message: err.Error()}
+		return &Error{Code: codeInvalidArguments, Message: err.Error()}
 	}
 	app.client = newHTTPClient(app.options.Client)
 	app.store = app.options.Credentials
 	if app.store == nil {
 		app.store = systemCredentials{}
-		if app.config.CredentialStorage[app.server] == "file" {
+		if app.config.CredentialStorage[app.server] == storageFile {
 			app.store = fileCredentials{directory: app.directory}
 		}
 	}
 	return nil
+}
+
+// requiresInstallation reports whether the leaf command acts on Meltiply data.
+// The auth and posts subcommands do; their parent groups, version, help, and
+// shell completion do not.
+func requiresInstallation(cmd *cobra.Command) bool {
+	for current := cmd; current != nil; current = current.Parent() {
+		if current == cmd {
+			continue
+		}
+		switch current.Name() {
+		case "auth", "posts":
+			return true
+		}
+	}
+	return false
 }

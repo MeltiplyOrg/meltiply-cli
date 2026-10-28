@@ -43,60 +43,17 @@ type deviceAuthorization struct {
 // login waits only until the server's device-code deadline or caller cancellation.
 // A failed local save revokes the new server session instead of abandoning it.
 func (app *application) login(cmd *cobra.Command, noBrowser, insecureStorage bool) error {
-	complete, err := app.existingLogin(cmd)
-	if complete {
+	if complete, err := app.prepareLogin(cmd, insecureStorage); complete || err != nil {
 		return err
 	}
-	explicitFallback := insecureStorage && errors.Is(err, errCredentialStoreUnavailable)
-	if err != nil && !explicitFallback {
-		return err
-	}
-	if insecureStorage && app.options.Credentials == nil {
-		app.store = fileCredentials{directory: app.directory}
-		if complete, err := app.existingLogin(cmd); complete || err != nil {
-			return err
-		}
-	}
-	result, err := app.request(cmd.Context(), httpRequest{
-		method: http.MethodPost, path: "/api/auth/device/code", body: map[string]string{"client_id": "melti-cli"},
-	})
+	device, verificationURL, err := app.requestDeviceAuthorization(cmd.Context())
 	if err != nil {
 		return err
-	}
-	var device deviceAuthorization
-	if err := json.Unmarshal(result.body, &device); err != nil {
-		return errors.New("invalid device authorization response")
-	}
-	if device.DeviceCode == "" || device.UserCode == "" || device.ExpiresIn <= 0 || device.ExpiresIn > 3600 {
-		return errors.New("invalid device authorization response")
-	}
-	verificationURL := device.VerificationURIComplete
-	if verificationURL == "" {
-		verificationURL = device.VerificationURI
-	}
-	parsed, err := url.Parse(verificationURL)
-	if err != nil || parsed == nil {
-		return errors.New("invalid browser authorization URL")
-	}
-	origin, err := installationOrigin(parsed.Scheme + "://" + parsed.Host)
-	if err != nil || origin != app.server || parsed.User != nil || parsed.Fragment != "" {
-		return errors.New("browser authorization URL must belong to the selected installation")
-	}
-	if strings.ContainsAny(device.UserCode, "\x1b\r\n\t") {
-		return errors.New("invalid device matching code")
 	}
 	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Open %s\nConfirm this code: %s\nApprove only a request you started on this device.\n", verificationURL, device.UserCode)
 	ctx, cancel := context.WithTimeout(cmd.Context(), time.Duration(device.ExpiresIn)*time.Second)
 	defer cancel()
-	if !noBrowser {
-		open := app.options.OpenBrowser
-		if open == nil {
-			open = openBrowser
-		}
-		if err := open(verificationURL); err != nil {
-			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Could not open a browser; open the URL above manually.")
-		}
-	}
+	app.openApprovalURL(cmd, verificationURL, noBrowser)
 	token, err := app.pollDevice(ctx, device)
 	if err != nil {
 		return err
@@ -111,13 +68,100 @@ func (app *application) login(cmd *cobra.Command, noBrowser, insecureStorage boo
 		app.revokeUnstored(token)
 		return err
 	}
+	return app.saveLogin(cmd, token, user, insecureStorage)
+}
+
+// prepareLogin reuses a live saved session and lets an explicit plaintext opt-in
+// recover from an unavailable keyring. Other store or HTTP failures stop login.
+func (app *application) prepareLogin(cmd *cobra.Command, insecureStorage bool) (bool, error) {
+	complete, err := app.existingLogin(cmd)
+	if complete {
+		return true, err
+	}
+	explicitFallback := insecureStorage && errors.Is(err, errCredentialStoreUnavailable)
+	if err != nil && !explicitFallback {
+		return false, err
+	}
+	if insecureStorage && app.options.Credentials == nil {
+		app.store = fileCredentials{directory: app.directory}
+		return app.existingLogin(cmd)
+	}
+	return false, nil
+}
+
+// requestDeviceAuthorization validates the unauthenticated device grant before
+// any browser interaction. The returned URL must stay on the selected origin.
+func (app *application) requestDeviceAuthorization(ctx context.Context) (deviceAuthorization, string, error) {
+	result, err := app.request(ctx, httpRequest{
+		method: http.MethodPost, path: "/api/auth/device/code", body: map[string]string{"client_id": cliName},
+	})
+	if err != nil {
+		return deviceAuthorization{}, "", err
+	}
+	var device deviceAuthorization
+	if err := json.Unmarshal(result.body, &device); err != nil {
+		return deviceAuthorization{}, "", errors.New("invalid device authorization response")
+	}
+	if device.DeviceCode == "" || device.UserCode == "" || device.ExpiresIn <= 0 || device.ExpiresIn > 3600 {
+		return deviceAuthorization{}, "", errors.New("invalid device authorization response")
+	}
+	verificationURL := device.VerificationURIComplete
+	if verificationURL == "" {
+		verificationURL = device.VerificationURI
+	}
+	if err := app.validateApprovalURL(verificationURL, device.UserCode); err != nil {
+		return deviceAuthorization{}, "", err
+	}
+	return device, verificationURL, nil
+}
+
+// validateApprovalURL refuses cross-origin consent pages and terminal escape
+// sequences in the user-facing matching code.
+func (app *application) validateApprovalURL(address, userCode string) error {
+	parsed, err := url.Parse(address)
+	if err != nil || parsed == nil {
+		return errors.New("invalid browser authorization URL")
+	}
+	origin, err := installationOrigin(parsed.Scheme + "://" + parsed.Host)
+	if err != nil || origin != app.server || parsed.User != nil || parsed.Fragment != "" {
+		return errors.New("browser authorization URL must belong to the selected installation")
+	}
+	if strings.ContainsAny(userCode, "\x1b\r\n\t") {
+		return errors.New("invalid device matching code")
+	}
+	return nil
+}
+
+// openApprovalURL opens the already-validated consent page, falling back to the
+// printed URL when the OS handler is missing or fails.
+func (app *application) openApprovalURL(cmd *cobra.Command, address string, noBrowser bool) {
+	if noBrowser {
+		return
+	}
+	open := app.options.OpenBrowser
+	if open == nil {
+		open = openBrowser
+	}
+	if err := open(address); err != nil {
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Could not open a browser; open the URL above manually.")
+	}
+}
+
+// saveLogin persists a verified session and its storage preference together.
+// Any local write failure revokes the newly issued server session.
+func (app *application) saveLogin(
+	cmd *cobra.Command,
+	token string,
+	user json.RawMessage,
+	insecureStorage bool,
+) error {
 	if err := app.store.Set(app.server, token); err != nil {
 		app.revokeUnstored(token)
 		return err
 	}
-	storage := "keyring"
-	if insecureStorage || app.config.CredentialStorage[app.server] == "file" {
-		storage = "file"
+	storage := storageKeyring
+	if insecureStorage || app.config.CredentialStorage[app.server] == storageFile {
+		storage = storageFile
 	}
 	if app.config.CredentialStorage == nil {
 		app.config.CredentialStorage = map[string]string{}
@@ -129,7 +173,7 @@ func (app *application) login(cmd *cobra.Command, noBrowser, insecureStorage boo
 		_ = app.store.Delete(app.server)
 		return err
 	}
-	if storage == "file" {
+	if storage == storageFile {
 		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Warning: the session is stored in a plaintext file protected by owner-only permissions.")
 	}
 	return app.printIdentity(cmd, user)
@@ -190,7 +234,7 @@ func (app *application) pollDevice(ctx context.Context, device deviceAuthorizati
 		result, err := app.request(ctx, httpRequest{
 			method: http.MethodPost, path: "/api/auth/device/token",
 			body: map[string]string{
-				"client_id": "melti-cli", "device_code": device.DeviceCode,
+				"client_id": cliName, "device_code": device.DeviceCode,
 				"grant_type": "urn:ietf:params:oauth:grant-type:device_code",
 			},
 		})
@@ -347,10 +391,13 @@ func openBrowser(address string) error {
 	defer cancel()
 	switch runtime.GOOS {
 	case "darwin":
+		// #nosec G204 -- address was validated as the selected installation's consent URL
 		return exec.CommandContext(ctx, "open", address).Run()
 	case "windows":
+		// #nosec G204 -- address was validated as the selected installation's consent URL
 		return exec.CommandContext(ctx, "rundll32", "url.dll,FileProtocolHandler", address).Run()
 	default:
+		// #nosec G204 -- address was validated as the selected installation's consent URL
 		return exec.CommandContext(ctx, "xdg-open", address).Run()
 	}
 }

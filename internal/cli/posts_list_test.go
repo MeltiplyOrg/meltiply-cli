@@ -20,8 +20,8 @@ func TestListPostsSelectsPage(t *testing.T) {
 			fixture.handler(w, r)
 			return
 		}
-		if r.Method != "GET" || r.Header.Get("Authorization") != "Bearer fresh-api-jwt" {
-			http.Error(w, "unauthorized", 401)
+		if r.Method != http.MethodGet || r.Header.Get("Authorization") != "Bearer fresh-api-jwt" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 		if r.URL.Query().Get("brand_profile_id") != selectedBrand {
@@ -32,7 +32,7 @@ func TestListPostsSelectsPage(t *testing.T) {
 		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 		offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 		if limit < 1 || offset < 0 || offset+limit > len(dataset) {
-			http.Error(w, "invalid page", 400)
+			http.Error(w, "invalid page", http.StatusBadRequest)
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"posts": dataset[offset : offset+limit], "total": 3})
