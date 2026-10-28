@@ -2,6 +2,10 @@
 
 Research findings from [CircleCI CLI](https://github.com/CircleCI-Public/circleci-cli) and [Cloudflare CLI (`cf`)](https://github.com/cloudflare/cf), paired with a concrete architecture blueprint for building an agent-first CLI in Go backed by an OpenAPI SaaS application.
 
+This is a prospective architecture blueprint, not the implemented command
+reference. See [README.md](./README.md) for the current `melti-cli` surface and
+the required backend authorization work.
+
 ---
 
 ## 1. Executive Research Summary
@@ -67,9 +71,9 @@ Traditional CLIs optimize for human typing; Agent-First CLIs optimize for machin
 ## 3. Recommended Go Project Layout
 
 ```
-meltiply-cli/
+melti-cli/
 ├── cmd/
-│   └── melt/
+│   └── melti-cli/
 │       └── main.go                 # Process entry: signal handling & exit codes
 ├── pkg/
 │   ├── agent/                      # Agent harness detector
@@ -90,9 +94,9 @@ meltiply-cli/
 │   └── commands/
 │       ├── root.go                 # Root Cobra command & global flags
 │       ├── auth/                   # login, logout, whoami
-│       ├── schema/                 # `melt schema <resource> <action>`
-│       ├── tools/                  # `melt tools` (MCP tool export)
-│       ├── search/                 # `melt search <query>`
+│       ├── schema/                 # `melti-cli schema <resource> <action>`
+│       ├── tools/                  # `melti-cli tools` (MCP tool export)
+│       ├── search/                 # `melti-cli search <query>`
 │       └── _generated/             # Auto-generated resource commands
 ├── spec/
 │   └── openapi.json                # Upstream SaaS OpenAPI spec
@@ -433,8 +437,8 @@ import (
 	"os"
 	"strings"
 
-	"meltiply-cli/pkg/clierror"
-	"meltiply-cli/pkg/iostream"
+	"melti-cli/pkg/clierror"
+	"melti-cli/pkg/iostream"
 )
 
 type MutationOpts struct {
@@ -489,7 +493,7 @@ func ResolveBody(bodyFlag string, fallback any) (any, error) {
 
 1. **Bootstrap Go Module & Generator**:
    ```sh
-   go mod init meltiply-cli
+   go mod init melti-cli
    go get github.com/spf13/cobra@latest
    go get github.com/spf13/pflag@latest
    go get github.com/itchyny/gojq@latest

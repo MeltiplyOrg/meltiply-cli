@@ -2,6 +2,10 @@
 
 A curated analysis of permissive open-source repositories (MIT, Apache 2.0, BSD) implementing SaaS-to-CLI generation, Model Context Protocol (MCP) bridges, and agent-first terminal patterns.
 
+These are research recommendations, not implemented capabilities. See
+[README.md](./README.md) for the current `melti-cli` commands and backend
+prerequisite.
+
 ---
 
 ## 1. Comparative Matrix
@@ -66,7 +70,7 @@ A curated analysis of permissive open-source repositories (MIT, Apache 2.0, BSD)
 
 ---
 
-## 3. Recommended Synthesis for `meltiply-cli`
+## 3. Recommended Synthesis for `melti-cli`
 
 To achieve an Agent-First Go CLI that connects to your remote SaaS application via OpenAPI, combine these open-source patterns:
 
@@ -81,13 +85,13 @@ flowchart TD
 
     subgraph Runtime Engine
         Spec --> MCPGen["pkg/mcp (mark3labs/mcp-go + jedisct1/openapi-mcp)"]
-        Spec --> SchemaCmd["melt schema <cmd>"]
+        Spec --> SchemaCmd["melti-cli schema <cmd>"]
         Client --> CobraCmds["pkg/commands (Cobra + pflag)"]
     end
 
     subgraph Execution Modes
         CobraCmds -->|Human CLI or Agent Bash Tool| StdioCLI["Raw JSON + --dry-run + --jq"]
-        MCPGen -->|Direct LLM Connection| StdioMCP["melt mcp (JSON-RPC over Stdio)"]
+        MCPGen -->|Direct LLM Connection| StdioMCP["melti-cli mcp (JSON-RPC over Stdio)"]
     end
 ```
 
@@ -95,6 +99,6 @@ flowchart TD
 1. **Core Client**: Generate strongly typed Go models with `oapi-codegen/v2` (following Supabase CLI).
 2. **Command Tree**: Structure using `spf13/cobra` with resource grouping (following Stripe CLI).
 3. **Agent Introspection**:
-   - Provide `melt tools` (outputting static MCP tool definitions for Claude/Cursor/Codex tool use).
-   - Provide `melt mcp` using `mark3labs/mcp-go` (allowing the CLI to be launched as a background MCP stdio server).
+   - Provide `melti-cli tools` (outputting static MCP tool definitions for Claude/Cursor/Codex tool use).
+   - Provide `melti-cli mcp` using `mark3labs/mcp-go` (allowing the CLI to be launched as a background MCP stdio server).
 4. **Token & Data Economy**: Embed `github.com/itchyny/gojq` for `--jq` filtering on stdout, and output all errors and telemetry to `stderr` with actionable `suggestions[]` (following CircleCI CLI & GitHub CLI).
