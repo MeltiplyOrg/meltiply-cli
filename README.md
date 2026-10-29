@@ -139,12 +139,28 @@ mutations.
 ## Development
 
 ```sh
-make build        # compile with version metadata
-make check        # build all packages and run go vet
-make test         # race-enabled, shuffled tests
-make lint         # golangci-lint (requires it on PATH)
-make fmt          # apply gofumpt/goimports (requires golangci-lint)
+make build            # compile with version metadata
+make check            # build all packages and run go vet
+make test             # race-enabled, shuffled tests
+make lint             # golangci-lint (requires it on PATH)
+make fmt              # apply gofumpt/goimports (requires golangci-lint)
+make generate         # regenerate API types from the vendored contract
+make verify-generated # fail if generated types are stale (CI runs this)
 ```
+
+### API types come from the contract
+
+Request and response types are **generated**, not hand-written. `spec/openapi.yaml`
+is a verbatim copy of Meltiply's contract, and `make generate` produces
+`internal/api` for exactly the operations the CLI calls. `spec/README.md`
+records the source commit and update procedure.
+
+Adding a command or handling a new field means editing `spec/oapi-codegen.yaml`
+and regenerating. A contract change that renames a field or alters an enum
+breaks compilation or the drift gate rather than silently shipping a malformed
+request. The auth endpoints are the one hand-written exception: they belong to
+Better Auth's plugin contract, not Meltiply's OpenAPI document, and are
+documented in the backend's `docs/device-authorization.md`.
 
 Tests exercise the public command interface against local HTTP servers with an
 isolated credential-store adapter, including browser approval, pending/denied/
@@ -163,7 +179,8 @@ provide:
   order, atomic coverage, and a 70% total statement-coverage floor. Coverage is
   uploaded to Codecov and retained as a build artifact.
 - **Quality:** `go vet`, module tidiness, `go build`, golangci-lint (including
-  gosec), and the repository's gofumpt/goimports formatting.
+  gosec), the repository's gofumpt/goimports formatting, and a byte-for-byte
+  check that generated API types still match the vendored contract.
 - **Workflow and docs:** `actionlint` validates every workflow; Lychee checks
   local Markdown links.
 - **Portability:** cross-compiles every release target, and builds a GoReleaser

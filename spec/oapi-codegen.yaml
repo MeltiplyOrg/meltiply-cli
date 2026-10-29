@@ -1,0 +1,14 @@
+# Generates the wire types for exactly the operations melti-cli calls. The
+# vendored spec is the single source of truth; `make generate` rewrites the
+# output and CI fails if it drifts. Add an operation here before hand-writing
+# any new request or response shape.
+package: api
+generate:
+  models: true
+output: internal/api/types.gen.go
+output-options:
+  skip-prune: false
+  include-operation-ids:
+    - getCurrentUser
+    - listPosts
+    - createPost

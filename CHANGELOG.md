@@ -15,5 +15,8 @@
   dependency review, and OpenSSF Scorecard, plus weekly Dependabot updates.
 - Honor `Retry-After` while polling a rate-limited device grant, keeping login
   pending rather than failing, and surface the retry delay in JSON errors.
-- Verify the full browser-login, Post, and logout lifecycle against the merged
-  Meltiply device-authorization backend running locally.
+- Generate API request and response types from a vendored copy of Meltiply's
+  OpenAPI contract, replacing hand-written wire shapes for current-user, Post
+  listing, and draft creation.
+- Add `make generate` and a CI `make verify-generated` drift gate that fails when
+  generated types no longer match the contract.

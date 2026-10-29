@@ -6,9 +6,17 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
+
+	"github.com/MeltiplyOrg/meltiply-cli/internal/api"
 )
+
+// maximumPostText is CreatePostRequest.default_text's maxLength in the vendored
+// contract. Checking it locally turns an avoidable round trip into a usage error.
+const maximumPostText = 10000
 
 // postsCommand owns terminal input and output only; composition, permissions,
 // and idempotency remain the existing backend Post service's responsibility.
@@ -25,8 +33,15 @@ func (app *application) createPostCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use: "create", Short: "Create a text-only draft Post", Args: noArguments,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if !validUUID(brandProfile) || text == "" {
+			identifier, err := uuid.Parse(brandProfile)
+			if err != nil {
+				return &Error{Code: codeInvalidArguments, Message: "brand-profile must be a UUID"}
+			}
+			if text == "" {
 				return &Error{Code: codeInvalidArguments, Message: "provide --brand-profile <UUID> and nonempty --text"}
+			}
+			if utf8.RuneCountInString(text) > maximumPostText {
+				return &Error{Code: codeInvalidArguments, Message: "text exceeds the contract's 10000-character limit"}
 			}
 			if key == "" {
 				var err error
@@ -42,12 +57,13 @@ func (app *application) createPostCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			body := api.CreatePostRequest{
+				BrandProfileId: identifier,
+				DefaultText:    &text,
+			}
 			result, err := app.request(cmd.Context(), httpRequest{
 				method: http.MethodPost, path: "/api/v1/posts", credential: jwt, key: key,
-				body: struct {
-					BrandProfileID string `json:"brand_profile_id"`
-					DefaultText    string `json:"default_text"`
-				}{BrandProfileID: brandProfile, DefaultText: text},
+				body: body,
 			})
 			if err != nil {
 				var detail *Error
@@ -69,27 +85,6 @@ func (app *application) createPostCommand() *cobra.Command {
 	command.Flags().StringVar(&text, "text", "", "Default Post text (required)")
 	command.Flags().StringVar(&key, "idempotency-key", "", "Reuse this key to retry the same creation safely; otherwise a UUID is generated")
 	return command
-}
-
-// validUUID validates the identifier's wire shape without reimplementing the
-// server's existence, ownership, or active-Brand-Profile checks.
-func validUUID(value string) bool {
-	if len(value) != 36 {
-		return false
-	}
-	for i := range len(value) {
-		if i == 8 || i == 13 || i == 18 || i == 23 {
-			if value[i] != '-' {
-				return false
-			}
-			continue
-		}
-		c := value[i]
-		if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
-			return false
-		}
-	}
-	return true
 }
 
 // validActionKey mirrors the core HTTP contract's bounded printable header shape.

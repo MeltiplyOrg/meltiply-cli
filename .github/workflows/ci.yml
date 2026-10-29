@@ -45,9 +45,13 @@ jobs:
         run: go build ./...
 
       - name: Test with race detector
+        # Coverage targets the hand-written CLI. Generated contract types are
+        # exercised only through the commands that call them, so counting them
+        # would dilute the floor without adding signal.
         run: >-
           go test -race -shuffle=on -count=1 -timeout=5m
-          -covermode=atomic -coverprofile=coverage.out ./...
+          -covermode=atomic -coverpkg=./internal/cli
+          -coverprofile=coverage.out ./...
 
       - name: Enforce coverage floor
         run: |
@@ -113,6 +117,13 @@ jobs:
         run: |
           golangci-lint fmt ./...
           git diff --exit-code
+
+      - name: Verify generated API types match the vendored contract
+        # The generator needs a newer toolchain than the module floor; let Go
+        # fetch it rather than failing the job on a version mismatch.
+        env:
+          GOTOOLCHAIN: auto
+        run: make verify-generated
 
   workflows:
     name: Validate workflows

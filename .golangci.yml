@@ -107,6 +107,9 @@ linters:
       - third_party$
       - testutils$
       - examples$
+      # Generated from the vendored contract; corrected by editing the spec and
+      # regenerating, never by hand.
+      - types\.gen\.go$
 
   settings:
     dupl:

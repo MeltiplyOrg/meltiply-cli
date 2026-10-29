@@ -6,7 +6,10 @@ import (
 	"net/url"
 	"strconv"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
+
+	"github.com/MeltiplyOrg/meltiply-cli/internal/api"
 )
 
 // listPostsCommand fetches exactly one bounded page. Explicit pagination avoids
@@ -20,18 +23,21 @@ func (app *application) listPostsCommand() *cobra.Command {
 			if limit < 1 || limit > 100 || offset < 0 || offset > 1_000_000 {
 				return &Error{Code: codeInvalidArguments, Message: "limit must be 1–100 and offset must be 0–1000000"}
 			}
-			if brandProfile != "" && !validUUID(brandProfile) {
-				return &Error{Code: codeInvalidArguments, Message: "brand-profile must be a UUID"}
-			}
-			if status != "" && status != "draft" && status != "active" {
-				return &Error{Code: codeInvalidArguments, Message: "status must be draft or active"}
-			}
+
 			query := url.Values{"limit": {strconv.Itoa(limit)}, "offset": {strconv.Itoa(offset)}}
 			if brandProfile != "" {
-				query.Set("brand_profile_id", brandProfile)
+				identifier, err := uuid.Parse(brandProfile)
+				if err != nil {
+					return &Error{Code: codeInvalidArguments, Message: "brand-profile must be a UUID"}
+				}
+				query.Set("brand_profile_id", identifier.String())
 			}
 			if status != "" {
-				query.Set("status", status)
+				lifecycle := api.PostStatus(status)
+				if !lifecycle.Valid() {
+					return &Error{Code: codeInvalidArguments, Message: "status must be draft or active"}
+				}
+				query.Set("status", string(lifecycle))
 			}
 			jwt, err := app.authenticatedJWT(cmd.Context())
 			if err != nil {
