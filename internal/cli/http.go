@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -22,7 +23,10 @@ type Error struct {
 	Status         int    `json:"status,omitempty"`
 	RequestID      string `json:"request_id,omitempty"`
 	IdempotencyKey string `json:"idempotency_key,omitempty"`
-	cause          error
+	// RetryAfterSeconds is the server's minimum wait before retrying, when it
+	// sent a usable Retry-After header. Zero means no advice was provided.
+	RetryAfterSeconds int `json:"retry_after_seconds,omitempty"`
+	cause             error
 }
 
 // Error implements error without including headers or response bodies.
@@ -146,7 +150,9 @@ func (app *application) request(ctx context.Context, input httpRequest) (httpRes
 func responseError(response *http.Response, data []byte) *Error {
 	detail := &Error{
 		Code: "http_error", Message: fmt.Sprintf("server returned HTTP %d", response.StatusCode),
-		Status: response.StatusCode, RequestID: response.Header.Get("X-Request-ID"),
+		Status:            response.StatusCode,
+		RequestID:         response.Header.Get("X-Request-ID"),
+		RetryAfterSeconds: retryAfterSeconds(response.Header.Get("Retry-After")),
 	}
 	var envelope struct {
 		Error            json.RawMessage `json:"error"`
@@ -181,4 +187,15 @@ func responseError(response *http.Response, data []byte) *Error {
 		}
 	}
 	return detail
+}
+
+// retryAfterSeconds accepts only the integer-seconds form of Retry-After and
+// caps it at one hour. HTTP-date values and absurd delays fall back to the
+// caller's own backoff so a hostile or misconfigured server cannot stall a CLI.
+func retryAfterSeconds(value string) int {
+	seconds, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || seconds <= 0 {
+		return 0
+	}
+	return min(seconds, 3600)
 }

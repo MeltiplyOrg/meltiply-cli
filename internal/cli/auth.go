@@ -245,7 +245,13 @@ func (app *application) pollDevice(ctx context.Context, device deviceAuthorizati
 				case "authorization_pending":
 					continue
 				case "slow_down":
-					interval += 5
+					interval = slowDownInterval(interval, detail.RetryAfterSeconds)
+					continue
+				case "rate_limited":
+					// The installation's distributed polling budget, not the
+					// grant state, rejected this poll. Wait at least as long as
+					// it asked and keep the grant pending.
+					interval = slowDownInterval(interval, detail.RetryAfterSeconds)
 					continue
 				}
 			}
@@ -260,6 +266,13 @@ func (app *application) pollDevice(ctx context.Context, device deviceAuthorizati
 		}
 		return grant.AccessToken, nil
 	}
+}
+
+// slowDownInterval applies RFC 8628's five-second increment and never waits less
+// than Retry-After asked. It caps the wait so a misbehaving server cannot outlive
+// the grant's expiry window.
+func slowDownInterval(current, retryAfter int) int {
+	return min(max(current+5, retryAfter), 60)
 }
 
 // sessionJWT exchanges a live CLI session for a new short-lived API JWT and

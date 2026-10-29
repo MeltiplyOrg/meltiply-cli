@@ -8,13 +8,20 @@ A Go command-line client for [Meltiply](https://github.com/MeltiplyOrg/meltiply)
 It calls the same HTTP interface as the dashboard; the server owns Workspace
 permissions, Post validation, persistence, and publishing.
 
-## Backend prerequisite
+## Backend support
 
-Browser authorization requires
-[Meltiply #79](https://github.com/MeltiplyOrg/meltiply/issues/79). Until the
-installation implements that protocol, CLI login cannot complete. This repository
-implements the client, not the backend changes. The client has been exercised
-against a local HTTP protocol fixture, not a deployed Meltiply installation.
+Browser authorization is implemented by Meltiply
+([PR #83](https://github.com/MeltiplyOrg/meltiply/pull/83), closing
+[#79](https://github.com/MeltiplyOrg/meltiply/issues/79)); the observable
+contract is documented in
+[`docs/device-authorization.md`](https://github.com/MeltiplyOrg/meltiply/blob/master/docs/device-authorization.md).
+Installations older than that change cannot complete CLI login.
+
+The complete flow — device code, browser consent, session issuance, JWT
+exchange, draft creation, listing, and logout revocation — has been exercised
+end to end against a locally running Meltiply API Worker at the merged commit.
+It has not been exercised against a deployed production installation, and CI
+uses local HTTP fixtures so it needs no live backend.
 
 ## Build
 
@@ -125,7 +132,8 @@ mutations.
   available. Cancellation returns exit code 130; invalid flags/arguments return
   2; other failures return 1.
 - Requests have a 30-second timeout and an 8 MiB response limit. Device polling
-  honors the server's interval, pending/slow-down responses, and expiration.
+  honors the server's interval, `authorization_pending`, `slow_down`, and
+  `Retry-After` on rate limiting, and stops at the grant's expiration.
 - Shell completions are available through `melti-cli completion --help`.
 
 ## Development

@@ -75,6 +75,47 @@ func TestDeviceSlowDownHonorsCancellation(t *testing.T) {
 	}
 }
 
+// TestRateLimitedPollingHonorsRetryAfter holds the grant pending instead of
+// failing login, and waits at least as long as the installation's rate limiter
+// asked before the next poll.
+func TestRateLimitedPollingHonorsRetryAfter(t *testing.T) {
+	fixture := &authFixture{approved: true}
+	var polls atomic.Int32
+	var firstPoll, secondPoll time.Time
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/auth/device/token" {
+			fixture.handler(w, r)
+			return
+		}
+		switch polls.Add(1) {
+		case 1:
+			firstPoll = time.Now()
+			w.Header().Set("Retry-After", "2")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"error":{"code":"rate_limited","message":"Slow down."}}`))
+		case 2:
+			secondPoll = time.Now()
+			fixture.handler(w, r)
+		default:
+			fixture.handler(w, r)
+		}
+	}))
+	defer server.Close()
+	options := cli.Options{
+		ConfigDir:   t.TempDir(),
+		Credentials: &memoryCredentials{values: map[string]string{}},
+	}
+	if _, _, err := execute(t, options, "auth", "login", "--server", server.URL, "--no-browser"); err != nil {
+		t.Fatalf("rate-limited polling failed login: %v", err)
+	}
+	if polls.Load() < 2 {
+		t.Fatalf("polled %d times", polls.Load())
+	}
+	if waited := secondPoll.Sub(firstPoll); waited < 2*time.Second {
+		t.Fatalf("retried after %s, before the 2s Retry-After", waited)
+	}
+}
+
 // TestUntrustedApprovalURLNeverOpensBrowser rejects a server response attempting
 // to send the member to a different installation for consent.
 func TestUntrustedApprovalURLNeverOpensBrowser(t *testing.T) {

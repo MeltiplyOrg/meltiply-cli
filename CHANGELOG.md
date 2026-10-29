@@ -13,3 +13,7 @@
 - Add GitHub Actions for multi-version tests, linting, formatting, docs links,
   cross-building, GoReleaser snapshots, releases, CodeQL, gosec, govulncheck,
   dependency review, and OpenSSF Scorecard, plus weekly Dependabot updates.
+- Honor `Retry-After` while polling a rate-limited device grant, keeping login
+  pending rather than failing, and surface the retry delay in JSON errors.
+- Verify the full browser-login, Post, and logout lifecycle against the merged
+  Meltiply device-authorization backend running locally.
